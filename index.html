@@ -1,0 +1,526 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sentence Length Checker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap">
+<style>
+/* Layout: proofreader's desk. Summary bar on top, text in on the left, marked-up copy on the right, sentence ledger below. */
+:root {
+  --paper: #f6f7f9;
+  --sheet: #ffffff;
+  --ink: #1a2130;
+  --muted: #5b6475;
+  --line: #dce0e7;
+  --accent: #2545c4;
+  --ok: #1d7549;
+  --ok-bg: rgba(29, 117, 73, 0.08);
+  --warn: #9a5c00;
+  --warn-bg: rgba(214, 140, 20, 0.16);
+  --over: #bd2236;
+  --over-bg: rgba(189, 34, 54, 0.13);
+  --focus: rgba(37, 69, 196, 0.35);
+  --font-text: "Source Serif 4", Georgia, "Times New Roman", serif;
+  --font-ui: "IBM Plex Sans", -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-num: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #111419; --sheet: #191d24; --ink: #e5e8ee; --muted: #98a1b1; --line: #2b313c;
+    --accent: #93a6ff; --ok: #5ec795; --ok-bg: rgba(94, 199, 149, 0.08);
+    --warn: #f1b45c; --warn-bg: rgba(241, 180, 92, 0.15);
+    --over: #ff7d8b; --over-bg: rgba(255, 125, 139, 0.15); --focus: rgba(147, 166, 255, 0.4);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #111419; --sheet: #191d24; --ink: #e5e8ee; --muted: #98a1b1; --line: #2b313c;
+  --accent: #93a6ff; --ok: #5ec795; --ok-bg: rgba(94, 199, 149, 0.08);
+  --warn: #f1b45c; --warn-bg: rgba(241, 180, 92, 0.15);
+  --over: #ff7d8b; --over-bg: rgba(255, 125, 139, 0.15); --focus: rgba(147, 166, 255, 0.4);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 15px;
+  line-height: 1.5;
+}
+.wrap {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding-block: 28px 56px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid;
+  gap: 20px;
+}
+
+header { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px 24px; }
+h1 {
+  font-family: var(--font-text);
+  font-weight: 600;
+  font-size: clamp(26px, 4vw, 34px);
+  line-height: 1.1;
+  margin: 0;
+  text-wrap: balance;
+}
+.lede { margin: 6px 0 0; color: var(--muted); max-width: 62ch; }
+
+.limit {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 14px; color: var(--muted);
+}
+.limit input {
+  width: 4.2em; font: 500 16px var(--font-num); color: var(--ink);
+  background: var(--sheet); border: 1px solid var(--line); border-radius: 6px;
+  padding: 6px 8px; text-align: center;
+}
+
+/* Summary */
+.summary {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--sheet);
+  overflow: hidden;
+}
+.stat { padding: 14px 16px; border-left: 1px solid var(--line); min-width: 0; }
+.stat:first-child { border-left: 0; }
+.stat .label {
+  font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted);
+}
+.stat .value {
+  font: 500 24px/1.2 var(--font-num); font-variant-numeric: tabular-nums; margin-top: 2px;
+}
+.stat .sub { font-size: 12.5px; color: var(--muted); }
+.stat.verdict .value { font-family: var(--font-ui); font-weight: 600; font-size: 18px; padding-top: 4px; }
+.stat.verdict.is-over { background: var(--over-bg); }
+.stat.verdict.is-over .value { color: var(--over); }
+.stat.verdict.is-ok .value { color: var(--ok); }
+
+/* Panels */
+.panels { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; }
+.panel { display: grid; grid-template-rows: auto 1fr; gap: 8px; min-width: 0; }
+.panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 30px; }
+.panel-head h2 {
+  margin: 0; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.09em; color: var(--muted);
+}
+.btn {
+  font: 500 13px var(--font-ui); color: var(--accent);
+  background: transparent; border: 1px solid var(--line); border-radius: 6px;
+  padding: 5px 10px; cursor: pointer;
+}
+.btn:hover { border-color: var(--accent); }
+.btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+
+textarea, .marked {
+  font-family: var(--font-text);
+  font-size: 17px;
+  line-height: 1.75;
+  color: var(--ink);
+  background: var(--sheet);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 18px 20px;
+  min-height: 420px;
+  width: 100%;
+}
+textarea { resize: vertical; display: block; }
+.marked { white-space: pre-wrap; overflow-wrap: anywhere; overflow-y: auto; max-height: 70vh; }
+.marked .empty { color: var(--muted); font-family: var(--font-ui); font-size: 15px; }
+
+.s { border-radius: 3px; padding: 1px 0; transition: background-color 0.3s; cursor: pointer; }
+.s.ok:hover { background: var(--ok-bg); }
+.s.warn { background: var(--warn-bg); }
+.s.over { background: var(--over-bg); text-decoration: underline wavy var(--over); text-decoration-thickness: 1px; text-underline-offset: 5px; }
+.s.flash { outline: 2px solid var(--accent); outline-offset: 2px; }
+.chip {
+  display: inline-block;
+  font: 500 11px/1 var(--font-num);
+  font-variant-numeric: tabular-nums;
+  vertical-align: 0.45em;
+  margin-left: 3px;
+  padding: 3px 5px;
+  border-radius: 4px;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  user-select: none;
+}
+.s.warn .chip { color: var(--warn); border-color: currentColor; }
+.s.over .chip { color: var(--sheet); background: var(--over); border-color: var(--over); }
+
+/* Ledger */
+.ledger { background: var(--sheet); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.ledger-head {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px;
+  padding: 12px 16px; border-bottom: 1px solid var(--line);
+}
+.ledger-head h2 { margin: 0; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.09em; color: var(--muted); }
+.controls { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; font-size: 14px; }
+.controls label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+.controls select {
+  font: 14px var(--font-ui); color: var(--ink); background: var(--sheet);
+  border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px;
+}
+.rows { list-style: none; margin: 0; padding: 0; }
+.row {
+  display: grid; grid-template-columns: 3.2em 4.6em minmax(0, 1fr); gap: 14px; align-items: baseline;
+  padding: 11px 16px; border-top: 1px solid var(--line); cursor: pointer;
+}
+.row:first-child { border-top: 0; }
+.row:hover { background: var(--paper); }
+.row .num { font: 12px var(--font-num); color: var(--muted); font-variant-numeric: tabular-nums; }
+.row .count { font: 500 14px var(--font-num); font-variant-numeric: tabular-nums; }
+.row .count .of { color: var(--muted); font-weight: 400; font-size: 12px; }
+.row.over { box-shadow: inset 3px 0 0 var(--over); }
+.row.over .count { color: var(--over); }
+.row.warn .count { color: var(--warn); }
+.row.ok .count { color: var(--ok); }
+.row .text { font-family: var(--font-text); font-size: 15.5px; line-height: 1.55; min-width: 0; overflow-wrap: anywhere; }
+.row .bar { grid-column: 3; height: 3px; background: var(--line); border-radius: 2px; position: relative; margin-top: 4px; }
+.row .bar i { position: absolute; inset: 0 auto 0 0; border-radius: 2px; background: var(--ok); }
+.row.warn .bar i { background: var(--warn); }
+.row.over .bar i { background: var(--over); }
+.row .bar b { position: absolute; top: -3px; bottom: -3px; width: 1px; background: var(--muted); }
+.ledger .none { padding: 18px 16px; color: var(--muted); }
+
+.notes { color: var(--muted); font-size: 13.5px; max-width: 80ch; }
+.notes summary { cursor: pointer; color: var(--ink); font-weight: 500; }
+.notes ul { margin: 8px 0 0; padding-left: 20px; display: grid; gap: 4px; }
+.notes code { font-family: var(--font-num); font-size: 12.5px; }
+
+.toast {
+  position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%);
+  background: var(--ink); color: var(--paper); font-size: 14px; padding: 8px 14px; border-radius: 8px;
+}
+
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+textarea:focus-visible, .limit input:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--focus); }
+
+@media (max-width: 860px) {
+  .panels { grid-template-columns: minmax(0, 1fr); }
+  textarea, .marked { min-height: 260px; }
+  .summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .stat { border-left: 0; border-top: 1px solid var(--line); }
+  .stat:nth-child(even) { border-left: 1px solid var(--line); }
+  .stat:nth-child(-n+2) { border-top: 0; }
+  .stat.verdict { grid-column: 1 / -1; border-left: 0; }
+}
+@media (max-width: 480px) {
+  .row { grid-template-columns: 2.4em 4.2em minmax(0, 1fr); gap: 10px; }
+  textarea, .marked { font-size: 16px; padding: 14px; }
+}
+@media (prefers-reduced-motion: reduce) { .s { transition: none; } }
+</style>
+<style>[hidden]{display:none!important} body{margin:0}</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Sentence Length Checker</h1>
+      <p class="lede">Paste your paragraph. Every sentence is counted the way Google Docs counts words, and anything over your limit is flagged.</p>
+    </div>
+    <label class="limit" for="limit">Max words per sentence
+      <input id="limit" type="number" min="1" max="200" value="25" inputmode="numeric">
+    </label>
+  </header>
+
+  <section class="summary" aria-label="Summary">
+    <div class="stat verdict" id="verdict"><div class="label">Result</div><div class="value" id="v-verdict">–</div><div class="sub" id="v-verdict-sub">&nbsp;</div></div>
+    <div class="stat"><div class="label">Sentences</div><div class="value" id="v-sentences">0</div><div class="sub" id="v-over">&nbsp;</div></div>
+    <div class="stat"><div class="label">Longest</div><div class="value" id="v-longest">0</div><div class="sub" id="v-longest-sub">&nbsp;</div></div>
+    <div class="stat"><div class="label">Average</div><div class="value" id="v-avg">0</div><div class="sub">words per sentence</div></div>
+    <div class="stat"><div class="label">Total words</div><div class="value" id="v-words">0</div><div class="sub">Google Docs count</div></div>
+  </section>
+
+  <div class="panels">
+    <div class="panel">
+      <div class="panel-head">
+        <h2><label for="input">Your text</label></h2>
+        <div class="btn-row">
+          <button class="btn" id="sample" type="button">Load example</button>
+          <button class="btn" id="clear" type="button">Clear</button>
+        </div>
+      </div>
+      <textarea id="input" spellcheck="true" placeholder="Paste or type your paragraph here…"></textarea>
+    </div>
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Marked up</h2>
+        <button class="btn" id="copy-over" type="button">Copy long sentences</button>
+      </div>
+      <div class="marked" id="marked" aria-live="polite"></div>
+    </div>
+  </div>
+
+  <section class="ledger" aria-label="Sentence list">
+    <div class="ledger-head">
+      <h2>Every sentence</h2>
+      <div class="controls">
+        <label for="only-over"><input type="checkbox" id="only-over"> Only show sentences over the limit</label>
+        <label for="sort">Order
+          <select id="sort">
+            <option value="doc">As written</option>
+            <option value="long">Longest first</option>
+          </select>
+        </label>
+      </div>
+    </div>
+    <ol class="rows" id="rows"></ol>
+  </section>
+
+  <details class="notes">
+    <summary>How words and sentences are counted</summary>
+    <ul>
+      <li>Words are split on spaces, like Google Docs. Hyphenated words (<code>well-known</code>), contractions (<code>don't</code>) and numbers (<code>1,250</code>, <code>3.5</code>) count as one word.</li>
+      <li>Words joined by an em dash or en dash (<code>this—that</code>) or a slash (<code>and/or</code>) count separately, which is where Google Docs differs from Word.</li>
+      <li>Lone symbols such as <code>&amp;</code> or a spaced dash are not counted as words. Web addresses and emails count as one word.</li>
+      <li>A sentence ends at <code>.</code> <code>!</code> or <code>?</code> followed by a new sentence, or at a line break. Titles and abbreviations like <code>Dr.</code>, <code>e.g.</code>, <code>U.S.</code> and initials like <code>J. K.</code> don't end a sentence.</li>
+      <li>Sentences within 3 words of the limit are shaded amber so you can see which ones are close.</li>
+    </ul>
+  </details>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+/* core:start */
+// Google Docs-style word count: whitespace-separated tokens, further split on
+// em/en dashes and slashes, ignoring tokens that contain no letters or digits.
+const WORD_CHAR = /[\p{L}\p{N}]/u;
+const URLISH = /^(?:[a-z][a-z0-9+.-]*:\/\/|www\.)\S+$|^[^\s@]+@[^\s@]+\.[^\s@]+$/i;
+
+function countWords(text) {
+  let n = 0;
+  for (const token of text.split(/\s+/)) {
+    if (!token) continue;
+    if (URLISH.test(token.replace(/^[("'“‘\[]+|[)"'”’\].,;:!?]+$/g, ''))) { n++; continue; }
+    for (const part of token.split(/[–—―\/]+/)) {
+      if (WORD_CHAR.test(part)) n++;
+    }
+  }
+  return n;
+}
+
+const ABBREVIATIONS = new Set([
+  'mr', 'mrs', 'ms', 'mx', 'dr', 'prof', 'sr', 'jr', 'st', 'mt', 'ft', 'rev', 'hon', 'gen', 'col', 'capt', 'lt', 'sgt', 'gov', 'sen', 'rep', 'pres',
+  'vs', 'v', 'e.g', 'i.e', 'cf', 'al', 'approx', 'ca', 'c', 'fig', 'figs', 'no', 'nos', 'vol', 'vols', 'pp', 'p', 'ed', 'eds', 'ch', 'sec', 'para', 'op', 'cit', 'ibid', 'est',
+  'inc', 'ltd', 'co', 'corp', 'dept', 'univ', 'assn', 'bros',
+  'jan', 'feb', 'mar', 'apr', 'jun', 'jul', 'aug', 'sep', 'sept', 'oct', 'nov', 'dec',
+  'u.s', 'u.k', 'u.n', 'e.u', 'a.m', 'p.m', 'ph.d', 'b.a', 'm.a', 'b.sc', 'm.sc'
+]);
+
+// Returns [{text, start, end}] with offsets into the original string.
+function splitSentences(text) {
+  const out = [];
+  const push = (s, e) => {
+    while (s < e && /\s/.test(text[s])) s++;
+    while (e > s && /\s/.test(text[e - 1])) e--;
+    if (e > s) out.push({ text: text.slice(s, e), start: s, end: e });
+  };
+  let start = 0;
+  let i = 0;
+  while (i < text.length) {
+    const ch = text[i];
+    if (ch === '\n') { push(start, i); start = i + 1; i++; continue; }
+    if (ch === '.' || ch === '!' || ch === '?' || ch === '…') {
+      let j = i;
+      while (j < text.length && /[.!?…]/.test(text[j])) j++;
+      const singleDot = text.slice(i, j) === '.';
+      while (j < text.length && /["'”’)\]»]/.test(text[j])) j++;
+      if (j >= text.length) { i = j; break; }
+      if (!/[ \t ]/.test(text[j]) && text[j] !== '\n') { i = j; continue; }
+      let k = j;
+      while (k < text.length && /[ \t ]/.test(text[k])) k++;
+      if (k >= text.length || text[k] === '\n') { push(start, j); start = j; i = j; continue; }
+      const next = text.slice(k).match(/^["'“‘(\[«]*(.)/u);
+      const nextChar = next ? next[1] : '';
+      const startsNew = /[\p{Lu}\p{N}]/u.test(nextChar);
+      let isAbbrev = false;
+      if (singleDot) {
+        const before = text.slice(start, i).match(/([\p{L}.]+)$/u);
+        const w = before ? before[1] : '';
+        const lw = w.toLowerCase();
+        if (ABBREVIATIONS.has(lw)) isAbbrev = true;
+        else if (/^\p{Lu}$/u.test(w)) isAbbrev = true; // initial like "J."
+        else if (/^(?:\p{L}\.)+\p{L}$/u.test(w)) isAbbrev = true; // "U.S" style
+      }
+      if (startsNew && !isAbbrev) { push(start, j); start = j; }
+      i = j;
+      continue;
+    }
+    i++;
+  }
+  push(start, text.length);
+  return out;
+}
+
+function analyse(text, limit) {
+  const sentences = splitSentences(text).map((s, idx) => {
+    const words = countWords(s.text);
+    const status = words > limit ? 'over' : words >= limit - 2 ? 'warn' : 'ok';
+    return { ...s, idx, words, status };
+  }).filter(s => s.words > 0);
+  return { sentences, totalWords: countWords(text) };
+}
+/* core:end */
+
+const $ = id => document.getElementById(id);
+const input = $('input'), marked = $('marked'), rows = $('rows'), limitEl = $('limit');
+const onlyOver = $('only-over'), sortEl = $('sort');
+let last = { sentences: [], totalWords: 0 };
+
+const SAMPLE = `The Industrial Revolution began in Britain in the late eighteenth century. Historians such as Dr. E. P. Thompson argued that it reshaped not only how goods were made but also how ordinary people understood time, work and their place in a rapidly changing society that seemed to reward the factory owner far more than the labourer. Steam power spread quickly. By 1850, Britain produced roughly half of the world's iron and cotton cloth—an extraordinary share for a country of its size. Workers and/or their families often lived in crowded, poorly ventilated housing close to the mills, where disease spread easily and where children as young as eight were expected to work long shifts alongside adults for very little pay. Reform came slowly, but it did come.`;
+
+function getLimit() {
+  const v = parseInt(limitEl.value, 10);
+  return Number.isFinite(v) && v > 0 ? v : 25;
+}
+
+function escapeHtml(s) {
+  return s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+function render() {
+  const text = input.value;
+  const limit = getLimit();
+  last = analyse(text, limit);
+  const { sentences, totalWords } = last;
+  const over = sentences.filter(s => s.status === 'over');
+
+  // Summary
+  const verdict = $('verdict');
+  verdict.classList.toggle('is-over', over.length > 0);
+  verdict.classList.toggle('is-ok', sentences.length > 0 && over.length === 0);
+  if (!sentences.length) {
+    $('v-verdict').textContent = 'Nothing to check';
+    $('v-verdict-sub').textContent = 'Paste some text to begin';
+  } else if (over.length) {
+    $('v-verdict').textContent = `${over.length} too long`;
+    $('v-verdict').title = '';
+    $('v-verdict-sub').textContent = `Over ${limit} words`;
+  } else {
+    $('v-verdict').textContent = 'All within limit';
+    $('v-verdict-sub').textContent = `Every sentence is ${limit} words or fewer`;
+  }
+  $('v-sentences').textContent = sentences.length;
+  $('v-over').textContent = sentences.length ? `${over.length} over the limit` : ' ';
+  const longest = sentences.reduce((a, s) => (!a || s.words > a.words ? s : a), null);
+  $('v-longest').textContent = longest ? longest.words : 0;
+  $('v-longest-sub').textContent = longest ? `sentence ${longest.idx + 1}` : ' ';
+  const avg = sentences.length ? sentences.reduce((a, s) => a + s.words, 0) / sentences.length : 0;
+  $('v-avg').textContent = avg ? avg.toFixed(1) : '0';
+  $('v-words').textContent = totalWords.toLocaleString();
+
+  // Marked-up copy, preserving the original spacing between sentences
+  if (!text.trim()) {
+    marked.innerHTML = '<span class="empty">Your text will appear here with each sentence marked and counted.</span>';
+  } else {
+    let html = '', pos = 0;
+    for (const s of sentences) {
+      html += escapeHtml(text.slice(pos, s.start));
+      html += `<span class="s ${s.status}" data-i="${s.idx}" title="${s.words} words">${escapeHtml(s.text)}<span class="chip" aria-label="${s.words} words">${s.words}</span></span>`;
+      pos = s.end;
+    }
+    html += escapeHtml(text.slice(pos));
+    marked.innerHTML = html;
+  }
+
+  // Ledger
+  let list = sentences.slice();
+  if (onlyOver.checked) list = list.filter(s => s.status === 'over');
+  if (sortEl.value === 'long') list.sort((a, b) => b.words - a.words || a.idx - b.idx);
+  const scale = Math.max(limit * 1.6, longest ? longest.words : 0);
+  if (!list.length) {
+    rows.innerHTML = `<li class="none">${sentences.length ? `No sentences are over ${limit} words.` : 'No sentences yet.'}</li>`;
+  } else {
+    rows.innerHTML = list.map(s => `
+      <li class="row ${s.status}" data-i="${s.idx}" tabindex="0">
+        <span class="num">#${s.idx + 1}</span>
+        <span class="count">${s.words}<span class="of">/${limit}</span></span>
+        <span class="text">${escapeHtml(s.text)}</span>
+        <span class="bar" aria-hidden="true"><i style="width:${Math.min(100, s.words / scale * 100)}%"></i><b style="left:${limit / scale * 100}%"></b></span>
+      </li>`).join('');
+  }
+
+  try { localStorage.setItem('slc-text', text); localStorage.setItem('slc-limit', String(limit)); } catch (e) {}
+}
+
+function flash(i) {
+  const el = marked.querySelector(`.s[data-i="${i}"]`);
+  if (!el) return;
+  el.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  el.classList.add('flash');
+  setTimeout(() => el.classList.remove('flash'), 1400);
+}
+
+function selectInTextarea(i) {
+  const s = last.sentences.find(x => x.idx === i);
+  if (!s) return;
+  input.focus();
+  input.setSelectionRange(s.start, s.end);
+}
+
+let toastTimer;
+function toast(msg) {
+  const t = $('toast');
+  t.textContent = msg; t.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.hidden = true; }, 1800);
+}
+
+rows.addEventListener('click', e => {
+  const row = e.target.closest('.row');
+  if (row) flash(row.dataset.i);
+});
+rows.addEventListener('keydown', e => {
+  const row = e.target.closest('.row');
+  if (row && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); flash(row.dataset.i); }
+});
+marked.addEventListener('click', e => {
+  const s = e.target.closest('.s');
+  if (s) selectInTextarea(Number(s.dataset.i));
+});
+
+let raf;
+input.addEventListener('input', () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(render); });
+limitEl.addEventListener('input', render);
+onlyOver.addEventListener('change', render);
+sortEl.addEventListener('change', render);
+$('sample').addEventListener('click', () => { input.value = SAMPLE; render(); });
+$('clear').addEventListener('click', () => { input.value = ''; render(); input.focus(); });
+$('copy-over').addEventListener('click', async () => {
+  const over = last.sentences.filter(s => s.status === 'over');
+  if (!over.length) { toast('No sentences are over the limit'); return; }
+  const txt = over.map(s => `#${s.idx + 1} (${s.words} words): ${s.text}`).join('\n\n');
+  try {
+    await navigator.clipboard.writeText(txt);
+    toast(`Copied ${over.length} sentence${over.length > 1 ? 's' : ''}`);
+  } catch (e) {
+    const ta = document.createElement('textarea');
+    ta.value = txt; document.body.appendChild(ta); ta.select();
+    let ok = false; try { ok = document.execCommand('copy'); } catch (_) {}
+    ta.remove();
+    toast(ok ? 'Copied' : 'Copy failed. Select the sentences in the list instead.');
+  }
+});
+
+(function init() {
+  let saved = null, savedLimit = null;
+  try { saved = localStorage.getItem('slc-text'); savedLimit = localStorage.getItem('slc-limit'); } catch (e) {}
+  if (savedLimit) limitEl.value = savedLimit;
+  input.value = saved != null && saved.trim() ? saved : SAMPLE;
+  render();
+})();
+</script>
+</body>
+</html>
